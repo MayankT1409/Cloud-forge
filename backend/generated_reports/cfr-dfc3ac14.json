@@ -1,0 +1,209 @@
+{
+  "recommendation": {
+    "report_id": "cfr-dfc3ac14",
+    "created_at": "2026-10-23T19:04:06.536378+00:00",
+    "executive_summary": "CloudForge evaluated your requirements for a staging api backend running on Go / Gin. With an anticipated 300 peak concurrent users and 5000 daily active users, we recommend the 'Multi-Instance Redundant' architecture. This model prioritizes security isolation by housing compute and database workloads in private subnets behind an Application Load Balancer with SSM-managed operational access.",
+    "recommended_tier": "Multi-Instance Redundant",
+    "recommended_services": [
+      {
+        "service_name": "Amazon VPC (Virtual Private Cloud)",
+        "category": "Networking",
+        "purpose": "Isolated private network boundary across multi-AZ",
+        "configuration_details": "CIDR: 10.0.0.0/16 with 2 Public Subnets & 2 Private Subnets in us-east-1.",
+        "is_required": true,
+        "rationale": "Mandatory baseline isolation for cloud workloads to enforce least-privilege network routing."
+      },
+      {
+        "service_name": "AWS Application Load Balancer (ALB)",
+        "category": "Networking",
+        "purpose": "Layer 7 Traffic Distribution and SSL/TLS Termination",
+        "configuration_details": "Public ALB terminating HTTPS (port 443) with ACM Certificate and forwarding to private targets.",
+        "is_required": true,
+        "rationale": "Terminating SSL at the ALB offloads crypto calculations from app servers and hides backend instances from direct public exposure."
+      },
+      {
+        "service_name": "AWS NAT Gateway",
+        "category": "Networking",
+        "purpose": "Outbound internet access for private subnet workloads",
+        "configuration_details": "Single NAT Gateway (dev/staging) or Dual NAT Gateways (production) in public subnets.",
+        "is_required": true,
+        "rationale": "Allows backend instances in private subnets to pull container images, OS patches, and third-party APIs without accepting inbound internet connections."
+      },
+      {
+        "service_name": "Amazon EC2 (t3.large)",
+        "category": "Compute",
+        "purpose": "Hosts Go / Gin application logic",
+        "configuration_details": "2 instance(s), 50 GB gp3 EBS root volume, IMDSv2 enforced.",
+        "is_required": true,
+        "rationale": "Selected t3.large matches your target of 2 vCPU and 4 GB memory requirements with burstable/general performance."
+      },
+      {
+        "service_name": "Amazon RDS (Postgres)",
+        "category": "Database",
+        "purpose": "Persistent application transactional storage",
+        "configuration_details": "db.t3.micro, 20 GB gp3 storage, Multi-AZ: True, automated backups: 7 days.",
+        "is_required": true,
+        "rationale": "Fully managed relational database handles automated patching, replication, failover, and point-in-time snapshots far more reliably than self-hosted database on EC2."
+      },
+      {
+        "service_name": "Amazon S3 (Simple Storage Service)",
+        "category": "Storage",
+        "purpose": "Durable object storage for file uploads and static assets",
+        "configuration_details": "Standard tier bucket with S3 Public Access Block, KMS SSE-S3 encryption, and versioning.",
+        "is_required": true,
+        "rationale": "11 9's durability with server-side encryption prevents file corruption and accidental data loss."
+      },
+      {
+        "service_name": "AWS IAM (Identity and Access Management)",
+        "category": "Security",
+        "purpose": "Least-privilege role-based access for EC2 instances and operations",
+        "configuration_details": "Instance profile with AmazonSSMManagedInstanceCore (no open SSH port 22 needed).",
+        "is_required": true,
+        "rationale": "Eliminates static hardcoded API keys on EC2 instances by utilizing IAM temporary role credentials."
+      },
+      {
+        "service_name": "Amazon CloudWatch & AWS Systems Manager",
+        "category": "Monitoring",
+        "purpose": "Centralized metrics, alarms, and SSM Session Manager shell access",
+        "configuration_details": "CloudWatch Agent for memory & disk metrics; Alarms on CPU > 80% and 5xx HTTP response counts.",
+        "is_required": true,
+        "rationale": "Provides real-time visibility into operational health without opening bastion hosts or inbound firewall ports."
+      }
+    ],
+    "compute_sizing": {
+      "instance_family": "t3.large",
+      "instance_count": 2,
+      "vcpu_total": 4,
+      "ram_total_gb": 16,
+      "storage_gb_per_instance": 50,
+      "storage_type": "gp3 (3000 IOPS baseline)"
+    },
+    "database_sizing": {
+      "engine": "postgres",
+      "multi_az": true,
+      "allocated_storage_gb": 20,
+      "backup_retention_days": 7,
+      "expected_connections": 50
+    },
+    "networking_and_security": [
+      "Strict VPC isolation: no direct public IPs on application or database instances.",
+      "Least-privilege security groups: ingress strictly restricted to upstream components.",
+      "AWS Systems Manager Session Manager for operational access without SSH key distribution or bastion hosts.",
+      "IMDSv2 enforced on all compute instances to prevent SSRF credential exfiltration.",
+      "All data encrypted at rest with AWS KMS and in transit with TLS 1.3."
+    ],
+    "disaster_recovery_plan": [
+      "Multi-AZ deployment: automatic failover with RTO < 60s and RPO = 0.",
+      "Automated database snapshots retained for 7 days.",
+      "Cross-region AMI copy recommended if multi-region disaster recovery is required."
+    ],
+    "monitoring_and_logging": [
+      "CloudWatch Metrics: EC2 CPUUtilization, DiskReadOps, NetworkIn/Out.",
+      "CloudWatch Alarms: Trigger alert at CPU > 80% for 5 minutes.",
+      "ALB HTTP 5xx error rate monitoring with Slack/Email notifications via Amazon SNS.",
+      "AWS CloudTrail enabled across all regions for audit logging of management events."
+    ],
+    "estimated_monthly_cost": 277.15,
+    "estimated_annual_cost": 3325.8,
+    "cost_currency": "USD",
+    "alternatives": [
+      {
+        "tier_name": "Minimal Development Tier",
+        "description": "Cost-optimized single-instance setup with public subnet and single-AZ RDS.",
+        "monthly_cost_estimate": 110.86,
+        "tradeoffs": [
+          "No Multi-AZ failover (brief downtime during maintenance or AZ outages)",
+          "No Application Load Balancer (direct instance exposure)",
+          "Single point of failure on the app server"
+        ],
+        "services_summary": [
+          "1x t3.micro/small",
+          "Single-AZ RDS",
+          "Direct Elastic IP",
+          "Basic CloudWatch"
+        ]
+      },
+      {
+        "tier_name": "Balanced Production Tier (Recommended)",
+        "description": "Resilient dual-AZ deployment with private app instances, ALB, and managed RDS.",
+        "monthly_cost_estimate": 277.15,
+        "tradeoffs": [
+          "Moderate monthly cost baseline (~$150-$250/mo)",
+          "Requires NAT gateway for private egress"
+        ],
+        "services_summary": [
+          "2x t3.large",
+          "Multi-AZ RDS",
+          "ALB",
+          "NAT Gateway",
+          "CloudWatch Alarms"
+        ]
+      },
+      {
+        "tier_name": "High Availability Enterprise Tier",
+        "description": "Multi-AZ Aurora Cluster with ECS Fargate containers, Auto Scaling, and CloudFront CDN.",
+        "monthly_cost_estimate": 609.73,
+        "tradeoffs": [
+          "Higher baseline cloud expenditure",
+          "Greater configuration and CI/CD orchestration complexity"
+        ],
+        "services_summary": [
+          "ECS Fargate Auto-scaled",
+          "Aurora Multi-AZ Cluster",
+          "CloudFront + WAF",
+          "Dual NAT Gateways"
+        ]
+      }
+    ],
+    "risks_and_bottlenecks": [
+      "Database connection pooling: ensure your application runtime utilizes connection pooling (e.g., PgBouncer or SQLAlchemy pool) to avoid exhausting RDS connections.",
+      "NAT Gateway outbound egress bandwidth: intensive outbound API calls or downloads incur $0.045/GB transfer costs.",
+      "Single-AZ database risk: if Multi-AZ is disabled, an underlying AWS hardware failure can cause 15-45 minutes of unplanned database recovery time.",
+      "Load Testing Disclaimer: This architecture is a structured recommendation based on stated parameters. It does NOT guarantee performance under arbitrary load until validated with synthetic load testing (e.g. k6, Locust)."
+    ],
+    "step_by_step_implementation_plan": [
+      "Step 1: Deploy VPC, Internet Gateway, Public Subnets, Private Subnets, and NAT Gateway via CloudForge Terraform module.",
+      "Step 2: Provision Security Groups enforcing strict ingress: ALB allows 80/443; EC2 allows only ALB ingress; RDS allows only EC2 security group ingress.",
+      "Step 3: Provision Amazon RDS instance in private database subnet group and securely store master credentials in AWS Secrets Manager.",
+      "Step 4: Provision Amazon S3 bucket with versioning and default KMS encryption; attach least-privilege IAM policy to the EC2 Instance Profile.",
+      "Step 5: Launch EC2 instances in private subnets utilizing the CloudForge template with IMDSv2 and SSM Agent enabled.",
+      "Step 6: Configure Application Load Balancer target groups with health checks (e.g. GET /health) and associate ACM TLS certificate.",
+      "Step 7: Configure CloudWatch alarms for CPU > 80%, Memory > 85%, and RDS FreeStorageSpace < 5 GB."
+    ],
+    "diagram_mermaid": "graph TD\n    User([End Users]) -->|HTTPS:443| ALB[Application Load Balancer]\n    subgraph VPC [VPC 10.0.0.0/16]\n        subgraph PublicSubnets [Public Subnets AZ-a / AZ-b]\n            ALB\n            NAT[NAT Gateway]\n        end\n        subgraph PrivateSubnets [Private App Subnets AZ-a / AZ-b]\n            EC2_A[EC2 t3.large 1]\n            EC2_B[EC2 t3.large 2]\n        end\n        subgraph DBSubnets [Private DB Subnets AZ-a / AZ-b]\n            RDS[(RDS Postgres Multi-AZ)]\n        end\n    end\n    ALB -->|HTTP:8000| EC2_A\n    ALB -->|HTTP:8000| EC2_B\n    EC2_A -->|Port 5432| RDS\n    EC2_B -->|Port 5432| RDS\n    EC2_A -.->|Outbound updates| NAT\n    EC2_B -.->|Outbound updates| NAT\n    EC2_A -->|IAM Role / SDK| S3[Amazon S3 Storage]\n    EC2_B -->|IAM Role / SDK| S3\n    EC2_A -.->|Metrics & Logs| CW[Amazon CloudWatch]\n    EC2_B -.->|Metrics & Logs| CW\n    NAT --> IGW[Internet Gateway]\n    ",
+    "assumptions": [
+      "Dual t3.large instances across separate AZs to prevent single-instance downtime."
+    ],
+    "is_demo": false
+  },
+  "questionnaire": {
+    "app_type": "api_backend",
+    "runtime": "Go / Gin",
+    "environment": "staging",
+    "daily_users": 5000,
+    "concurrent_users": 300,
+    "traffic_pattern": "steady",
+    "scaling_required": true,
+    "cpu_cores": 2,
+    "ram_gb": 4,
+    "storage_gb": 50,
+    "bandwidth_gb_month": 100,
+    "db_required": true,
+    "db_engine": "postgres",
+    "db_size_gb": 20,
+    "db_connections": 50,
+    "file_storage_required": true,
+    "file_storage_gb": 100,
+    "network_access": "public_facing",
+    "encryption_at_rest": true,
+    "encryption_in_transit": true,
+    "waf_required": false,
+    "multi_az": true,
+    "sla_target": "99.9",
+    "backup_retention_days": 7,
+    "monthly_budget_usd": 200.0,
+    "preferred_region": "us-east-1",
+    "existing_constraints": ""
+  },
+  "pdf_file": "CloudForge_Report_cfr-dfc3ac14.pdf"
+}
