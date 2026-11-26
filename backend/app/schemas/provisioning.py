@@ -1,6 +1,7 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 
+
 class VPCConfig(BaseModel):
     enabled: bool = True
     name: str = Field("cloudforge-vpc", min_length=2, max_length=64)
@@ -9,6 +10,7 @@ class VPCConfig(BaseModel):
     single_nat_gateway: bool = Field(True, description="Single NAT GW to optimize costs vs Multi-AZ NAT")
     public_subnet_cidrs: list[str] = Field(default_factory=lambda: ["10.0.1.0/24", "10.0.2.0/24"])
     private_subnet_cidrs: list[str] = Field(default_factory=lambda: ["10.0.10.0/24", "10.0.20.0/24"])
+
 
 class EC2Config(BaseModel):
     enabled: bool = True
@@ -21,12 +23,14 @@ class EC2Config(BaseModel):
     enable_imds_v2: bool = True
     user_data_base64: str | None = None
 
+
 class S3Config(BaseModel):
     enabled: bool = True
     bucket_name_prefix: str = Field("cloudforge-storage", min_length=3, max_length=50)
     versioning_enabled: bool = True
     block_public_access: bool = True
     server_side_encryption: Literal["AES256", "aws:kms"] = "AES256"
+
 
 class RDSConfig(BaseModel):
     enabled: bool = False
@@ -41,27 +45,35 @@ class RDSConfig(BaseModel):
     backup_retention_period: int = Field(7, ge=0, le=35)
     deletion_protection: bool = True
 
+
 class IAMConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool = False
     role_name: str = Field("cloudforge-ec2-role", min_length=3, max_length=64)
     attach_ssm_policy: bool = Field(True, description="AmazonSSMManagedInstanceCore for secure SSH-free management")
     attach_s3_readonly: bool = True
 
+
 class ProvisioningDraft(BaseModel):
+    provider: Literal["aws", "azure", "gcp"] = "aws"
     environment: Literal["dev", "staging", "prod"] = "dev"
     region: str = Field("us-east-1")
+    azure_resource_group: str = Field("rg-cloudforge-dev", min_length=2, max_length=64)
+    gcp_project_id: str | None = None
     tags: dict[str, str] = Field(default_factory=lambda: {"Project": "CloudForge", "ManagedBy": "Terraform"})
     vpc: VPCConfig = Field(default_factory=VPCConfig)
     ec2: EC2Config = Field(default_factory=EC2Config)
     s3: S3Config = Field(default_factory=S3Config)
     rds: RDSConfig = Field(default_factory=RDSConfig)
-    iam: IAMConfig = Field(default_factory=IAMConfig)
+    iam: IAMConfig = Field(default_factory=lambda: IAMConfig(enabled=False))
+
 
 class PlanRequest(BaseModel):
     config: ProvisioningDraft
 
+
 class PlanResponse(BaseModel):
     plan_id: str
+    provider: Literal["aws", "azure", "gcp"] = "aws"
     workspace_name: str
     is_valid: bool
     validation_output: str
@@ -76,9 +88,11 @@ class PlanResponse(BaseModel):
     state_locked: bool
     generated_terraform_code: str
 
+
 class ApplyRequest(BaseModel):
     plan_id: str
     confirmation_phrase: str = Field(..., description="Must explicitly confirm operation")
+
 
 class ApplyResponse(BaseModel):
     operation_id: str
@@ -86,9 +100,11 @@ class ApplyResponse(BaseModel):
     started_at: str
     message: str
 
+
 class DestroyRequest(BaseModel):
     plan_id: str
     confirmation_phrase: str = Field(..., description="Must type 'DESTROY' to proceed with teardown")
+
 
 class OperationRecord(BaseModel):
     operation_id: str

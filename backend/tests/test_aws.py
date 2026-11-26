@@ -41,3 +41,24 @@ def test_least_privilege_policy_generator():
     assert "sts:AssumeRole" in str(guide.trust_policy)
     assert "AdministratorAccess" not in str(guide.provisioning_policy)
     assert "Condition" in guide.provisioning_policy["Statement"][0]
+
+
+def test_multicloud_demo_inventory_and_gcp_connect():
+    from app.schemas.aws import ConnectGCPRequest
+    from app.services.aws_service import connect_gcp, disconnect_gcp
+
+    set_demo_mode(True)
+    inv = fetch_inventory("us-east-1")
+    providers = {r.provider for r in inv.resources}
+    assert {"aws", "azure", "gcp"}.issubset(providers)
+
+    gcp_res = connect_gcp(ConnectGCPRequest(
+        project_id="test-proj-123",
+        service_account_email="sa@test-proj-123.iam.gserviceaccount.com",
+        credentials_json='{"type": "service_account", "project_id": "test-proj-123", "private_key": "dummy-key", "client_email": "sa@test-proj-123.iam.gserviceaccount.com"}',
+        region="us-central1",
+    ))
+    assert gcp_res.connected is True
+    assert gcp_res.identifier == "test-proj-123"
+    disconnect_gcp()
+    set_demo_mode(True)

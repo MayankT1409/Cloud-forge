@@ -57,6 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside style={{
       width: '260px',
+      flexShrink: 0,
       backgroundColor: '#0a0e17',
       borderRight: '1px solid rgba(255, 255, 255, 0.08)',
       display: 'flex',

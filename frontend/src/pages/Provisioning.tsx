@@ -3,66 +3,118 @@ import {
   Layers,
   Server,
   Database,
-  ShieldCheck,
+  KeyRound,
   HardDrive,
   Terminal,
   Play,
   Trash2,
   AlertTriangle,
   CheckCircle,
-  Clock,
   RefreshCw,
   Eye,
   FileCode,
-  DollarSign,
   Info
 } from 'lucide-react';
 import { api } from '../services/api';
-import { PlanResponse, OperationRecord } from '../types';
+import { AWSConnectionStatus, CloudProvider, PlanResponse, OperationRecord } from '../types';
+
+const PROVIDER_REGIONS: Record<CloudProvider, Array<{ value: string; label: string }>> = {
+  aws: [
+    { value: 'us-east-1', label: 'us-east-1 (N. Virginia)' },
+    { value: 'us-west-2', label: 'us-west-2 (Oregon)' },
+    { value: 'eu-west-1', label: 'eu-west-1 (Ireland)' },
+    { value: 'ap-south-1', label: 'ap-south-1 (Mumbai)' },
+    { value: 'ap-southeast-1', label: 'ap-southeast-1 (Singapore)' },
+  ],
+  azure: [
+    { value: 'eastus', label: 'eastus (East US)' },
+    { value: 'westus2', label: 'westus2 (West US 2)' },
+    { value: 'westeurope', label: 'westeurope (West Europe)' },
+    { value: 'centralindia', label: 'centralindia (Central India)' },
+    { value: 'southeastasia', label: 'southeastasia (Southeast Asia)' },
+  ],
+  gcp: [
+    { value: 'us-central1', label: 'us-central1 (Iowa)' },
+    { value: 'us-east1', label: 'us-east1 (South Carolina)' },
+    { value: 'europe-west1', label: 'europe-west1 (Belgium)' },
+    { value: 'asia-south1', label: 'asia-south1 (Mumbai)' },
+    { value: 'asia-southeast1', label: 'asia-southeast1 (Singapore)' },
+  ],
+};
+
+const INSTANCE_OPTIONS: Record<CloudProvider, Array<{ value: string; label: string }>> = {
+  aws: [
+    { value: 't3.micro', label: 't3.micro (2 vCPU, 1 GB)' },
+    { value: 't3.small', label: 't3.small (2 vCPU, 2 GB)' },
+    { value: 't3.medium', label: 't3.medium (2 vCPU, 4 GB)' },
+    { value: 'm6i.large', label: 'm6i.large (2 vCPU, 8 GB)' },
+    { value: 'c6i.xlarge', label: 'c6i.xlarge (4 vCPU, 8 GB)' },
+  ],
+  azure: [
+    { value: 'Standard_B1s', label: 'Standard_B1s (1 vCPU, 1 GB)' },
+    { value: 'Standard_B1ms', label: 'Standard_B1ms (1 vCPU, 2 GB)' },
+    { value: 'Standard_B2s', label: 'Standard_B2s (2 vCPU, 4 GB)' },
+    { value: 'Standard_D2s_v5', label: 'Standard_D2s_v5 (2 vCPU, 8 GB)' },
+    { value: 'Standard_F4s_v2', label: 'Standard_F4s_v2 (4 vCPU, 8 GB)' },
+  ],
+  gcp: [
+    { value: 'e2-micro', label: 'e2-micro (2 vCPU, 1 GB)' },
+    { value: 'e2-small', label: 'e2-small (2 vCPU, 2 GB)' },
+    { value: 'e2-medium', label: 'e2-medium (2 vCPU, 4 GB)' },
+    { value: 'n2-standard-2', label: 'n2-standard-2 (2 vCPU, 8 GB)' },
+    { value: 'c2-standard-4', label: 'c2-standard-4 (4 vCPU, 16 GB)' },
+  ],
+};
 
 export const Provisioning: React.FC = () => {
-  // Form State
+  // Provider & Global State
+  const [provider, setProvider] = useState<CloudProvider>('aws');
   const [environment, setEnvironment] = useState<'dev' | 'staging' | 'prod'>('dev');
   const [region, setRegion] = useState('us-east-1');
+  const [cloudStatus, setCloudStatus] = useState<AWSConnectionStatus | null>(null);
 
-  // VPC Config
+  // Inline Credentials (Access Key & Secret for AWS, Service Principal for Azure, SA JSON for GCP)
+  const [awsAccessKey, setAwsAccessKey] = useState('');
+  const [awsSecretKey, setAwsSecretKey] = useState('');
+  const [azureResourceGroup, setAzureResourceGroup] = useState('rg-cloudforge-dev');
+  const [azureSubId, setAzureSubId] = useState('');
+  const [azureTenantId, setAzureTenantId] = useState('');
+  const [azureClientId, setAzureClientId] = useState('');
+  const [azureClientSecret, setAzureClientSecret] = useState('');
+  const [gcpProjectId, setGcpProjectId] = useState('');
+  const [gcpCredsJson, setGcpCredsJson] = useState('');
+  const [connectingCreds, setConnectingCreds] = useState(false);
+  const [credNotice, setCredNotice] = useState<string | null>(null);
+
+  // Network Config
   const [vpcEnabled, setVpcEnabled] = useState(true);
   const [vpcName, setVpcName] = useState('cloudforge-vpc');
   const [cidrBlock, setCidrBlock] = useState('10.0.0.0/16');
   const [enableNat, setEnableNat] = useState(true);
-  const [singleNat, setSingleNat] = useState(true);
 
-  // EC2 Config
+  // Compute Config
   const [ec2Enabled, setEc2Enabled] = useState(true);
   const [ec2Name, setEc2Name] = useState('cloudforge-app-server');
   const [instanceType, setInstanceType] = useState('t3.medium');
-  const [amiId, setAmiId] = useState('ami-0c7217cdde317cfec');
+  const [amiId] = useState('ami-0c7217cdde317cfec');
   const [rootVolumeSize, setRootVolumeSize] = useState(30);
-  const [rootVolumeType, setRootVolumeType] = useState<'gp3' | 'gp2'>('gp3');
-  const [associatePublicIp, setAssociatePublicIp] = useState(false);
   const [enableImdsV2, setEnableImdsV2] = useState(true);
 
-  // S3 Config
+  // Object Storage Config
   const [s3Enabled, setS3Enabled] = useState(true);
   const [bucketPrefix, setBucketPrefix] = useState('cloudforge-storage');
   const [versioning, setVersioning] = useState(true);
   const [blockPublicAccess, setBlockPublicAccess] = useState(true);
 
-  // RDS Config
+  // Database Config
   const [rdsEnabled, setRdsEnabled] = useState(false);
   const [dbIdentifier, setDbIdentifier] = useState('cloudforge-db');
   const [dbEngine, setDbEngine] = useState<'postgres' | 'mysql'>('postgres');
   const [dbInstanceClass, setDbInstanceClass] = useState('db.t3.micro');
-  const [allocatedStorage, setAllocatedStorage] = useState(20);
+  const [allocatedStorage] = useState(20);
   const [multiAz, setMultiAz] = useState(false);
-  const [backupRetention, setBackupRetention] = useState(7);
+  const [backupRetention] = useState(7);
   const [deletionProtection, setDeletionProtection] = useState(true);
-
-  // IAM Config
-  const [iamEnabled, setIamEnabled] = useState(true);
-  const [iamRoleName, setIamRoleName] = useState('cloudforge-ec2-role');
-  const [attachSsm, setAttachSsm] = useState(true);
-  const [attachS3Ro, setAttachS3Ro] = useState(true);
 
   // Workflow State
   const [isPlanning, setIsPlanning] = useState(false);
@@ -87,7 +139,7 @@ export const Provisioning: React.FC = () => {
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    loadRecentOperations();
+    loadInitialData();
   }, []);
 
   useEffect(() => {
@@ -115,6 +167,19 @@ export const Provisioning: React.FC = () => {
     }
   }, [currentOperation?.raw_logs, activeTab]);
 
+  const loadInitialData = async () => {
+    await Promise.all([loadRecentOperations(), loadCloudStatus()]);
+  };
+
+  const loadCloudStatus = async () => {
+    try {
+      const status = await api.getAWSStatus();
+      setCloudStatus(status);
+    } catch {
+      // ignore
+    }
+  };
+
   const loadRecentOperations = async () => {
     try {
       const ops = await api.listOperations();
@@ -124,20 +189,97 @@ export const Provisioning: React.FC = () => {
     }
   };
 
+  const handleProviderChange = (next: CloudProvider) => {
+    setProvider(next);
+    setRegion(PROVIDER_REGIONS[next][0].value);
+    setInstanceType(INSTANCE_OPTIONS[next][2].value);
+    setPlanResult(null);
+    setErrorMsg(null);
+    setCredNotice(null);
+  };
+
+  const handleConnectInlineCredentials = async (): Promise<boolean> => {
+    setConnectingCreds(true);
+    setErrorMsg(null);
+    setCredNotice(null);
+    try {
+      if (provider === 'aws') {
+        const res = await api.connectAWS(awsAccessKey, awsSecretKey, region);
+        setCloudStatus(res);
+        if (!res.connected) {
+          setErrorMsg(res.message || 'AWS Access Key authentication failed.');
+          return false;
+        }
+        setCredNotice(`Connected AWS (${res.account_id}) via Access Key ${res.access_key_id_masked}`);
+        setAwsSecretKey('');
+        return true;
+      }
+      if (provider === 'azure') {
+        const res = await api.connectAzure(azureSubId, azureTenantId, azureClientId, azureClientSecret, region);
+        await loadCloudStatus();
+        if (!res.connected) {
+          setErrorMsg(res.message || 'Azure Service Principal authentication failed.');
+          return false;
+        }
+        setCredNotice(`Connected Azure Subscription ${res.identifier}`);
+        setAzureClientSecret('');
+        return true;
+      }
+      const res = await api.connectGCP(gcpProjectId, gcpCredsJson, region);
+      await loadCloudStatus();
+      if (!res.connected) {
+        setErrorMsg(res.message || 'GCP Service Account connection failed.');
+        return false;
+      }
+      setCredNotice(`Connected GCP Project ${res.identifier}`);
+      setGcpCredsJson('');
+      return true;
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Credential connection failed');
+      return false;
+    } finally {
+      setConnectingCreds(false);
+    }
+  };
+
   const handleGeneratePlan = async () => {
     setIsPlanning(true);
     setErrorMsg(null);
     try {
+      // If user filled inline credentials on the Provisioning page, connect them before planning
+      if (provider === 'aws' && awsAccessKey && awsSecretKey) {
+        const ok = await handleConnectInlineCredentials();
+        if (!ok) {
+          setIsPlanning(false);
+          return;
+        }
+      } else if (provider === 'azure' && azureSubId && azureTenantId && azureClientId && azureClientSecret) {
+        const ok = await handleConnectInlineCredentials();
+        if (!ok) {
+          setIsPlanning(false);
+          return;
+        }
+      } else if (provider === 'gcp' && gcpProjectId && gcpCredsJson) {
+        const ok = await handleConnectInlineCredentials();
+        if (!ok) {
+          setIsPlanning(false);
+          return;
+        }
+      }
+
       const payload = {
+        provider,
         environment,
         region,
+        azure_resource_group: azureResourceGroup,
+        gcp_project_id: gcpProjectId || cloudStatus?.gcp?.identifier || undefined,
         tags: { Project: 'CloudForge', Environment: environment },
         vpc: {
           enabled: vpcEnabled,
           name: vpcName,
           cidr_block: cidrBlock,
           enable_nat_gateway: enableNat,
-          single_nat_gateway: singleNat,
+          single_nat_gateway: true,
         },
         ec2: {
           enabled: ec2Enabled,
@@ -145,8 +287,8 @@ export const Provisioning: React.FC = () => {
           instance_type: instanceType,
           ami_id: amiId,
           root_volume_size_gb: rootVolumeSize,
-          root_volume_type: rootVolumeType,
-          associate_public_ip: associatePublicIp,
+          root_volume_type: 'gp3',
+          associate_public_ip: false,
           enable_imds_v2: enableImdsV2,
         },
         s3: {
@@ -170,10 +312,10 @@ export const Provisioning: React.FC = () => {
           deletion_protection: deletionProtection,
         },
         iam: {
-          enabled: iamEnabled,
-          role_name: iamRoleName,
-          attach_ssm_policy: attachSsm,
-          attach_s3_readonly: attachS3Ro,
+          enabled: false,
+          role_name: 'unused',
+          attach_ssm_policy: false,
+          attach_s3_readonly: false,
         },
       };
 
@@ -221,44 +363,80 @@ export const Provisioning: React.FC = () => {
     }
   };
 
+  const isSelectedProviderConnected =
+    cloudStatus?.is_demo ||
+    (provider === 'aws' && cloudStatus?.connected) ||
+    (provider === 'azure' && cloudStatus?.azure?.connected) ||
+    (provider === 'gcp' && cloudStatus?.gcp?.connected);
+
+  const networkTitle =
+    provider === 'aws'
+      ? 'VPC & Networking'
+      : provider === 'azure'
+      ? 'Azure Virtual Network (VNet)'
+      : 'GCP VPC Network';
+
+  const computeTitle =
+    provider === 'aws'
+      ? 'EC2 Virtual Machine'
+      : provider === 'azure'
+      ? 'Azure Linux Virtual Machine'
+      : 'Compute Engine VM';
+
+  const storageTitle =
+    provider === 'aws'
+      ? 'S3 Object Storage'
+      : provider === 'azure'
+      ? 'Azure Blob Storage Account'
+      : 'Google Cloud Storage (GCS)';
+
+  const dbTitle =
+    provider === 'aws'
+      ? 'RDS Managed Database'
+      : provider === 'azure'
+      ? 'Azure Flexible DB Server'
+      : 'Google Cloud SQL';
+
   return (
     <div className="space-y-6">
-      {/* Page Title */}
+      {/* Page Title & Cloud Selector */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
             <Layers className="h-6 w-6 text-brand-primary" />
-            Infrastructure Provisioning
+            Multi-Cloud Infrastructure Provisioning
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Vetted Terraform modules with automated policy scanning, state locking, and two-factor confirmed execution.
+            Provision AWS (via Access Key &amp; Secret), Microsoft Azure, and Google Cloud Platform resources with Terraform HCL.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <select
             value={environment}
             onChange={(e) => setEnvironment(e.target.value as any)}
-            className="input-select w-36 text-sm"
+            className="input-select w-32 text-sm"
           >
             <option value="dev">dev</option>
             <option value="staging">staging</option>
-            <option value="prod">prod (Locked)</option>
+            <option value="prod">prod</option>
           </select>
 
           <select
             value={region}
             onChange={(e) => setRegion(e.target.value)}
-            className="input-select w-36 text-sm"
+            className="input-select w-48 text-sm"
           >
-            <option value="us-east-1">us-east-1</option>
-            <option value="us-west-2">us-west-2</option>
-            <option value="eu-west-1">eu-west-1</option>
+            {PROVIDER_REGIONS[provider].map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
           </select>
 
           <button
             onClick={handleGeneratePlan}
-            disabled={isPlanning}
+            disabled={isPlanning || connectingCreds}
             className="btn-primary flex items-center gap-2"
           >
             {isPlanning ? (
@@ -269,10 +447,66 @@ export const Provisioning: React.FC = () => {
             ) : (
               <>
                 <Terminal className="h-4 w-4" />
-                Validate & Plan
+                Validate &amp; Plan
               </>
             )}
           </button>
+        </div>
+      </div>
+
+      {/* Multi-Cloud Target Tabs */}
+      <div className="panel p-2 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleProviderChange('aws')}
+            className={`px-3.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 transition-colors ${
+              provider === 'aws'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span className="h-2 w-2 rounded-full bg-amber-400" />
+            AWS (Access Key)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleProviderChange('azure')}
+            className={`px-3.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 transition-colors ${
+              provider === 'azure'
+                ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span className="h-2 w-2 rounded-full bg-blue-400" />
+            Microsoft Azure
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleProviderChange('gcp')}
+            className={`px-3.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 transition-colors ${
+              provider === 'gcp'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span className="h-2 w-2 rounded-full bg-cyan-400" />
+            Google Cloud (GCP)
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs pr-2">
+          {cloudStatus?.is_demo ? (
+            <span className="badge-warning">Demo Sandbox Mode</span>
+          ) : isSelectedProviderConnected ? (
+            <span className="badge-green">
+              {provider.toUpperCase()} Live Credentials Ready
+            </span>
+          ) : (
+            <span className="badge-gray">{provider.toUpperCase()} Not Connected</span>
+          )}
         </div>
       </div>
 
@@ -286,16 +520,193 @@ export const Provisioning: React.FC = () => {
         </div>
       )}
 
+      {credNotice && (
+        <div className="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2.5">
+          <CheckCircle className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+          <span>{credNotice}</span>
+        </div>
+      )}
+
       {/* Main Grid: Resource Configuration (Left) & Plan/Logs (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Resource Form */}
+        {/* Left Column: Credentials + Resource Form */}
         <div className="lg:col-span-5 space-y-4">
-          {/* VPC Card */}
+          {/* Access Key & Cloud Credentials Card (Replaced IAM Role) */}
+          <div className="panel p-4">
+            <div className="flex items-center justify-between pb-3 border-b border-surface-border">
+              <div className="flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-cyan-400" />
+                <span className="font-medium text-white text-sm">
+                  {provider === 'aws'
+                    ? 'AWS Access Key & Secret Key'
+                    : provider === 'azure'
+                    ? 'Azure Service Principal'
+                    : 'GCP Service Account'}
+                </span>
+              </div>
+              {isSelectedProviderConnected ? (
+                <span className="badge-green text-[10px]">
+                  {cloudStatus?.is_demo ? 'Sandbox' : 'Authenticated'}
+                </span>
+              ) : (
+                <span className="badge-warning text-[10px]">Required for Live</span>
+              )}
+            </div>
+
+            {provider === 'aws' && (
+              <div className="mt-3 space-y-2.5 text-xs">
+                {cloudStatus?.connected && !cloudStatus?.is_demo && (
+                  <div className="p-2 rounded bg-emerald-950/30 border border-emerald-500/20 text-emerald-300 font-mono text-[11px]">
+                    Active Key: {cloudStatus.access_key_id_masked} ({cloudStatus.account_id})
+                  </div>
+                )}
+                <div>
+                  <label className="text-slate-400 block mb-1">AWS Access Key ID</label>
+                  <input
+                    type="text"
+                    placeholder="AKIAIOSFODNN7EXAMPLE"
+                    value={awsAccessKey}
+                    onChange={(e) => setAwsAccessKey(e.target.value.trim())}
+                    className="input-text text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 block mb-1">AWS Secret Access Key</label>
+                  <input
+                    type="password"
+                    placeholder="Enter Secret Access Key"
+                    value={awsSecretKey}
+                    onChange={(e) => setAwsSecretKey(e.target.value)}
+                    className="input-text text-xs font-mono"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleConnectInlineCredentials}
+                  disabled={connectingCreds || !awsAccessKey || !awsSecretKey}
+                  className="btn-secondary w-full justify-center text-xs py-1.5"
+                >
+                  {connectingCreds ? 'Verifying Keys...' : 'Connect & Use AWS Access Keys'}
+                </button>
+              </div>
+            )}
+
+            {provider === 'azure' && (
+              <div className="mt-3 space-y-2.5 text-xs">
+                {cloudStatus?.azure?.connected && !cloudStatus?.is_demo && (
+                  <div className="p-2 rounded bg-emerald-950/30 border border-emerald-500/20 text-emerald-300 font-mono text-[11px]">
+                    Active Subscription: {cloudStatus.azure.identifier}
+                  </div>
+                )}
+                <div>
+                  <label className="text-slate-400 block mb-1">Resource Group Name</label>
+                  <input
+                    type="text"
+                    value={azureResourceGroup}
+                    onChange={(e) => setAzureResourceGroup(e.target.value)}
+                    className="input-text text-xs font-mono"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Subscription ID</label>
+                    <input
+                      type="text"
+                      placeholder="Subscription UUID"
+                      value={azureSubId}
+                      onChange={(e) => setAzureSubId(e.target.value)}
+                      className="input-text text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Tenant ID</label>
+                    <input
+                      type="text"
+                      placeholder="Tenant UUID"
+                      value={azureTenantId}
+                      onChange={(e) => setAzureTenantId(e.target.value)}
+                      className="input-text text-xs font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Client ID</label>
+                    <input
+                      type="text"
+                      placeholder="App Client ID"
+                      value={azureClientId}
+                      onChange={(e) => setAzureClientId(e.target.value)}
+                      className="input-text text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Client Secret</label>
+                    <input
+                      type="password"
+                      placeholder="Client Secret"
+                      value={azureClientSecret}
+                      onChange={(e) => setAzureClientSecret(e.target.value)}
+                      className="input-text text-xs font-mono"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleConnectInlineCredentials}
+                  disabled={connectingCreds || !azureSubId || !azureTenantId || !azureClientId || !azureClientSecret}
+                  className="btn-secondary w-full justify-center text-xs py-1.5"
+                >
+                  {connectingCreds ? 'Verifying Azure...' : 'Connect Azure Credentials'}
+                </button>
+              </div>
+            )}
+
+            {provider === 'gcp' && (
+              <div className="mt-3 space-y-2.5 text-xs">
+                {cloudStatus?.gcp?.connected && !cloudStatus?.is_demo && (
+                  <div className="p-2 rounded bg-emerald-950/30 border border-emerald-500/20 text-emerald-300 font-mono text-[11px]">
+                    Active Project: {cloudStatus.gcp.identifier}
+                  </div>
+                )}
+                <div>
+                  <label className="text-slate-400 block mb-1">GCP Project ID</label>
+                  <input
+                    type="text"
+                    placeholder="my-gcp-project-id"
+                    value={gcpProjectId}
+                    onChange={(e) => setGcpProjectId(e.target.value)}
+                    className="input-text text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 block mb-1">Service Account JSON Key</label>
+                  <textarea
+                    rows={2}
+                    placeholder='{"type": "service_account", ...}'
+                    value={gcpCredsJson}
+                    onChange={(e) => setGcpCredsJson(e.target.value)}
+                    className="input-text text-xs font-mono"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleConnectInlineCredentials}
+                  disabled={connectingCreds || !gcpProjectId || !gcpCredsJson}
+                  className="btn-secondary w-full justify-center text-xs py-1.5"
+                >
+                  {connectingCreds ? 'Connecting GCP...' : 'Connect GCP Credentials'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Networking Card */}
           <div className="panel p-4">
             <div className="flex items-center justify-between pb-3 border-b border-surface-border">
               <div className="flex items-center gap-2">
                 <HardDrive className="h-4 w-4 text-brand-primary" />
-                <span className="font-medium text-white text-sm">VPC & Networking</span>
+                <span className="font-medium text-white text-sm">{networkTitle}</span>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -311,7 +722,7 @@ export const Provisioning: React.FC = () => {
             {vpcEnabled && (
               <div className="mt-3 space-y-3 text-xs">
                 <div>
-                  <label className="text-slate-400 block mb-1">VPC Name</label>
+                  <label className="text-slate-400 block mb-1">Network Name</label>
                   <input
                     type="text"
                     value={vpcName}
@@ -320,7 +731,7 @@ export const Provisioning: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-400 block mb-1">CIDR Block</label>
+                  <label className="text-slate-400 block mb-1">CIDR Block / Address Space</label>
                   <input
                     type="text"
                     value={cidrBlock}
@@ -341,12 +752,12 @@ export const Provisioning: React.FC = () => {
             )}
           </div>
 
-          {/* EC2 Card */}
+          {/* Compute Card */}
           <div className="panel p-4">
             <div className="flex items-center justify-between pb-3 border-b border-surface-border">
               <div className="flex items-center gap-2">
                 <Server className="h-4 w-4 text-emerald-400" />
-                <span className="font-medium text-white text-sm">EC2 Virtual Machine</span>
+                <span className="font-medium text-white text-sm">{computeTitle}</span>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -372,17 +783,17 @@ export const Provisioning: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-slate-400 block mb-1">Instance Type</label>
+                    <label className="text-slate-400 block mb-1">Machine / VM Size</label>
                     <select
                       value={instanceType}
                       onChange={(e) => setInstanceType(e.target.value)}
                       className="input-select text-xs"
                     >
-                      <option value="t3.micro">t3.micro (2 vCPU, 1 GB)</option>
-                      <option value="t3.small">t3.small (2 vCPU, 2 GB)</option>
-                      <option value="t3.medium">t3.medium (2 vCPU, 4 GB)</option>
-                      <option value="m6i.large">m6i.large (2 vCPU, 8 GB)</option>
-                      <option value="c6i.xlarge">c6i.xlarge (4 vCPU, 8 GB)</option>
+                      {INSTANCE_OPTIONS[provider].map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -398,25 +809,27 @@ export const Provisioning: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-slate-300">Enforce IMDSv2 (Session Tokens)</span>
-                  <input
-                    type="checkbox"
-                    checked={enableImdsV2}
-                    onChange={(e) => setEnableImdsV2(e.target.checked)}
-                    className="rounded bg-surface-dark border-surface-border text-brand-primary focus:ring-0"
-                  />
-                </div>
+                {provider === 'aws' && (
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-slate-300">Enforce IMDSv2 (Session Tokens)</span>
+                    <input
+                      type="checkbox"
+                      checked={enableImdsV2}
+                      onChange={(e) => setEnableImdsV2(e.target.checked)}
+                      className="rounded bg-surface-dark border-surface-border text-brand-primary focus:ring-0"
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* S3 Storage Card */}
+          {/* Storage Card */}
           <div className="panel p-4">
             <div className="flex items-center justify-between pb-3 border-b border-surface-border">
               <div className="flex items-center gap-2">
                 <HardDrive className="h-4 w-4 text-amber-400" />
-                <span className="font-medium text-white text-sm">S3 Object Storage</span>
+                <span className="font-medium text-white text-sm">{storageTitle}</span>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -432,7 +845,7 @@ export const Provisioning: React.FC = () => {
             {s3Enabled && (
               <div className="mt-3 space-y-3 text-xs">
                 <div>
-                  <label className="text-slate-400 block mb-1">Bucket Prefix</label>
+                  <label className="text-slate-400 block mb-1">Bucket / Account Prefix</label>
                   <input
                     type="text"
                     value={bucketPrefix}
@@ -441,7 +854,7 @@ export const Provisioning: React.FC = () => {
                   />
                 </div>
                 <div className="flex items-center justify-between pt-1">
-                  <span className="text-slate-300">Block Public Access (All 4 flags)</span>
+                  <span className="text-slate-300">Block Public Access</span>
                   <input
                     type="checkbox"
                     checked={blockPublicAccess}
@@ -462,12 +875,12 @@ export const Provisioning: React.FC = () => {
             )}
           </div>
 
-          {/* RDS Database Card */}
+          {/* Database Card */}
           <div className="panel p-4">
             <div className="flex items-center justify-between pb-3 border-b border-surface-border">
               <div className="flex items-center gap-2">
                 <Database className="h-4 w-4 text-purple-400" />
-                <span className="font-medium text-white text-sm">RDS Managed Database</span>
+                <span className="font-medium text-white text-sm">{dbTitle}</span>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -504,15 +917,15 @@ export const Provisioning: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="text-slate-400 block mb-1">Instance Class</label>
+                    <label className="text-slate-400 block mb-1">Instance Tier</label>
                     <select
                       value={dbInstanceClass}
                       onChange={(e) => setDbInstanceClass(e.target.value)}
                       className="input-select text-xs"
                     >
-                      <option value="db.t3.micro">db.t3.micro</option>
-                      <option value="db.t3.small">db.t3.small</option>
-                      <option value="db.m6g.large">db.m6g.large</option>
+                      <option value="db.t3.micro">Burstable Micro</option>
+                      <option value="db.t3.small">Burstable Small</option>
+                      <option value="db.m6g.large">General Purpose Large</option>
                     </select>
                   </div>
                 </div>
@@ -538,53 +951,10 @@ export const Provisioning: React.FC = () => {
               </div>
             )}
           </div>
-
-          {/* IAM Role Card */}
-          <div className="panel p-4">
-            <div className="flex items-center justify-between pb-3 border-b border-surface-border">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-cyan-400" />
-                <span className="font-medium text-white text-sm">IAM Least-Privilege Role</span>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={iamEnabled}
-                  onChange={(e) => setIamEnabled(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-surface-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-primary"></div>
-              </label>
-            </div>
-
-            {iamEnabled && (
-              <div className="mt-3 space-y-3 text-xs">
-                <div>
-                  <label className="text-slate-400 block mb-1">Instance Role Name</label>
-                  <input
-                    type="text"
-                    value={iamRoleName}
-                    onChange={(e) => setIamRoleName(e.target.value)}
-                    className="input-text text-xs font-mono"
-                  />
-                </div>
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-slate-300">AWS SSM Session Manager</span>
-                  <input
-                    type="checkbox"
-                    checked={attachSsm}
-                    onChange={(e) => setAttachSsm(e.target.checked)}
-                    className="rounded bg-surface-dark border-surface-border text-brand-primary focus:ring-0"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Right Column: Execution Viewport (Plan / HCL / Terminal) */}
         <div className="lg:col-span-7 flex flex-col space-y-4">
-          {/* Action Tabs Header */}
           <div className="panel p-2 flex items-center justify-between">
             <div className="flex items-center gap-1">
               <button
@@ -642,7 +1012,6 @@ export const Provisioning: React.FC = () => {
               </button>
             </div>
 
-            {/* Apply & Destroy Action Controls */}
             {planResult && (
               <div className="flex items-center gap-2">
                 <button
@@ -664,14 +1033,15 @@ export const Provisioning: React.FC = () => {
             )}
           </div>
 
-          {/* Tab 1: Plan Summary */}
           {activeTab === 'plan_summary' && (
             <div className="panel p-5 flex-1 min-h-[500px] flex flex-col justify-between">
               {planResult ? (
                 <div className="space-y-5">
                   <div className="flex items-center justify-between pb-3 border-b border-surface-border">
                     <div>
-                      <div className="text-xs text-slate-400">Plan Workspace</div>
+                      <div className="text-xs text-slate-400">
+                        Plan Workspace ({(planResult.provider || provider).toUpperCase()})
+                      </div>
                       <div className="text-sm font-semibold text-white font-mono">{planResult.workspace_name}</div>
                     </div>
                     <div className="text-right">
@@ -682,7 +1052,6 @@ export const Provisioning: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Impact Stats */}
                   <div className="grid grid-cols-3 gap-3">
                     <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-center">
                       <div className="text-2xl font-bold text-emerald-400">+{planResult.resources_to_add}</div>
@@ -698,10 +1067,9 @@ export const Provisioning: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Resource Changes List */}
                   <div>
                     <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                      Planned Resource Modifications
+                      Planned Resource Creations
                     </h3>
                     <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                       {planResult.resource_changes.map((rc, idx) => (
@@ -716,21 +1084,27 @@ export const Provisioning: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Risk Identifications */}
                   <div>
                     <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                      Security & Cost Guardrails
+                      Security &amp; Cost Guardrails
                     </h3>
                     <div className="space-y-1.5">
-                      {planResult.risks_identified.map((risk, idx) => (
-                        <div
-                          key={idx}
-                          className="p-2.5 rounded bg-surface-muted border border-surface-border text-xs text-slate-300 flex items-start gap-2"
-                        >
-                          <Info className="h-4 w-4 text-brand-primary flex-shrink-0 mt-0.5" />
-                          <span>{risk}</span>
+                      {planResult.risks_identified.length > 0 ? (
+                        planResult.risks_identified.map((risk, idx) => (
+                          <div
+                            key={idx}
+                            className="p-2.5 rounded bg-surface-muted border border-surface-border text-xs text-slate-300 flex items-start gap-2"
+                          >
+                            <Info className="h-4 w-4 text-brand-primary flex-shrink-0 mt-0.5" />
+                            <span>{risk}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-2.5 rounded bg-emerald-950/20 border border-emerald-500/20 text-xs text-emerald-300 flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+                          <span>All security and cost guardrails passed. Ready to Apply.</span>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 </div>
@@ -740,8 +1114,8 @@ export const Provisioning: React.FC = () => {
                   <div>
                     <div className="text-white font-medium">No Active Plan Generated</div>
                     <p className="text-xs text-slate-500 max-w-sm mt-1">
-                      Configure your desired AWS architecture on the left and click "Validate & Plan" to run an isolated
-                      spec check and cost estimate.
+                      Select AWS, Azure, or GCP, configure your credentials &amp; resources on the left, and click
+                      &quot;Validate &amp; Plan&quot;.
                     </p>
                   </div>
                 </div>
@@ -749,11 +1123,10 @@ export const Provisioning: React.FC = () => {
             </div>
           )}
 
-          {/* Tab 2: Terraform HCL */}
           {activeTab === 'terraform_hcl' && (
             <div className="panel p-4 flex-1 flex flex-col min-h-[500px]">
               <div className="flex items-center justify-between pb-2 border-b border-surface-border text-xs text-slate-400">
-                <span>main.tf (Sanitized HCL Configuration)</span>
+                <span>main.tf ({provider.toUpperCase()} Sanitized HCL Configuration)</span>
                 <button
                   onClick={() => {
                     if (planResult?.generated_terraform_code) {
@@ -771,7 +1144,6 @@ export const Provisioning: React.FC = () => {
             </div>
           )}
 
-          {/* Tab 3: Live Terminal */}
           {activeTab === 'live_terminal' && (
             <div className="panel p-4 flex-1 flex flex-col min-h-[500px]">
               <div className="flex items-center justify-between pb-2 border-b border-surface-border text-xs">
@@ -794,7 +1166,7 @@ export const Provisioning: React.FC = () => {
                       className={
                         line.includes('ERROR') || line.includes('Error')
                           ? 'text-red-400'
-                          : line.includes('complete') || line.includes('success')
+                          : line.includes('complete') || line.includes('success') || line.includes('Created') || line.includes('Launched')
                           ? 'text-emerald-400'
                           : line.includes('Creating') || line.includes('Destroying')
                           ? 'text-amber-300'
@@ -812,7 +1184,6 @@ export const Provisioning: React.FC = () => {
             </div>
           )}
 
-          {/* Recent Operations Drawer */}
           <div className="panel p-4">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
               <span>Recent Executions</span>
@@ -872,13 +1243,12 @@ export const Provisioning: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-lg font-bold text-white">Confirm Infrastructure Apply</h3>
-                <p className="text-xs text-slate-400">Isolated background execution</p>
+                <p className="text-xs text-slate-400">Isolated background execution ({provider.toUpperCase()})</p>
               </div>
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              This will execute <code className="text-emerald-400">terraform apply</code> against workspace{' '}
-              <span className="font-mono text-white">{planResult?.workspace_name}</span>.
+              This will provision resources for <span className="font-mono text-white">{planResult?.workspace_name}</span>.
               Type <strong className="text-white">CONFIRM</strong> below to verify authorization.
             </p>
 
@@ -893,10 +1263,7 @@ export const Provisioning: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                onClick={() => setShowApplyModal(false)}
-                className="btn-secondary text-xs"
-              >
+              <button onClick={() => setShowApplyModal(false)} className="btn-secondary text-xs">
                 Cancel
               </button>
               <button
@@ -942,10 +1309,7 @@ export const Provisioning: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                onClick={() => setShowDestroyModal(false)}
-                className="btn-secondary text-xs"
-              >
+              <button onClick={() => setShowDestroyModal(false)} className="btn-secondary text-xs">
                 Cancel
               </button>
               <button

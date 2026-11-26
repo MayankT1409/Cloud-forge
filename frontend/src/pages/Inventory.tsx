@@ -8,11 +8,9 @@ import {
   Search,
   Filter,
   RefreshCw,
-  CheckCircle,
   AlertTriangle,
   Info,
-  Shield,
-  Tag
+  Shield
 } from 'lucide-react';
 import { api } from '../services/api';
 import { InventoryResponse, ResourceItem } from '../types';
@@ -24,6 +22,7 @@ export const Inventory: React.FC = () => {
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
+  const [providerFilter, setProviderFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [managementFilter, setManagementFilter] = useState('all');
   const [selectedRegion, setSelectedRegion] = useState('us-east-1');
@@ -50,16 +49,27 @@ export const Inventory: React.FC = () => {
 
     return data.resources.filter((item) => {
       const matchesSearch =
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.id.toLowerCase().includes(searchQuery.toLowerCase());
+        (item.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.id || '').toLowerCase().includes(searchQuery.toLowerCase());
 
+      const itemProvider = (item.provider || 'aws').toLowerCase();
+      const matchesProvider =
+        providerFilter === 'all' || itemProvider === providerFilter.toLowerCase();
+
+      const itemType = (item.resource_type || '').toLowerCase();
       const matchesType =
-        typeFilter === 'all' || item.resource_type.toLowerCase() === typeFilter.toLowerCase();
+        typeFilter === 'all' ||
+        itemType === typeFilter.toLowerCase() ||
+        (typeFilter === 'compute' && ['ec2', 'vm', 'gce'].includes(itemType)) ||
+        (typeFilter === 'network' && ['vpc', 'vnet', 'subnet'].includes(itemType)) ||
+        (typeFilter === 'storage' && ['s3', 'blob', 'gcs'].includes(itemType)) ||
+        (typeFilter === 'database' && ['rds', 'azure_sql', 'cloud_sql'].includes(itemType));
 
       const matchesManagement =
-        managementFilter === 'all' || item.managed_by.toLowerCase() === managementFilter.toLowerCase();
+        managementFilter === 'all' ||
+        (item.managed_by || '').toLowerCase() === managementFilter.toLowerCase();
 
-      return matchesSearch && matchesType && matchesManagement;
+      return matchesSearch && matchesProvider && matchesType && matchesManagement;
     });
   };
 
@@ -68,17 +78,31 @@ export const Inventory: React.FC = () => {
   const getIconForType = (type: string) => {
     switch (type.toLowerCase()) {
       case 'ec2':
+      case 'vm':
+      case 'gce':
         return <Server className="h-4 w-4 text-emerald-400" />;
       case 'rds':
+      case 'azure_sql':
+      case 'cloud_sql':
         return <Database className="h-4 w-4 text-purple-400" />;
       case 's3':
+      case 'blob':
+      case 'gcs':
         return <HardDrive className="h-4 w-4 text-amber-400" />;
       case 'vpc':
+      case 'vnet':
       case 'subnet':
         return <Globe className="h-4 w-4 text-blue-400" />;
       default:
         return <Boxes className="h-4 w-4 text-slate-400" />;
     }
+  };
+
+  const renderProviderBadge = (provider?: string) => {
+    const p = (provider || 'aws').toLowerCase();
+    if (p === 'azure') return <span className="badge-azure">Azure</span>;
+    if (p === 'gcp') return <span className="badge-gcp">GCP</span>;
+    return <span className="badge-aws">AWS</span>;
   };
 
   return (
@@ -88,10 +112,10 @@ export const Inventory: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
             <Boxes className="h-6 w-6 text-brand-primary" />
-            Resource Inventory
+            Multi-Cloud Resource Inventory
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Real-time discovered and CloudForge-managed infrastructure in target cloud account.
+            Discovered and CloudForge-managed infrastructure across AWS, Microsoft Azure, and Google Cloud.
           </p>
         </div>
 
@@ -99,11 +123,12 @@ export const Inventory: React.FC = () => {
           <select
             value={selectedRegion}
             onChange={(e) => setSelectedRegion(e.target.value)}
-            className="input-select text-xs w-40"
+            className="input-select text-xs w-44"
           >
             <option value="us-east-1">us-east-1 (N. Virginia)</option>
             <option value="us-west-2">us-west-2 (Oregon)</option>
             <option value="eu-west-1">eu-west-1 (Ireland)</option>
+            <option value="ap-south-1">ap-south-1 (Mumbai)</option>
             <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
           </select>
 
@@ -124,7 +149,7 @@ export const Inventory: React.FC = () => {
           <div className="flex items-center gap-2 text-slate-300">
             <Info className="h-4 w-4 text-brand-primary" />
             <span>
-              Target Account: <strong className="text-white font-mono">{data.account_id}</strong> &bull; Region:{' '}
+              Target Account: <strong className="text-white font-mono">{data.account_id}</strong> &bull; AWS Region:{' '}
               <strong className="text-white font-mono">{data.region}</strong>
             </span>
           </div>
@@ -132,7 +157,7 @@ export const Inventory: React.FC = () => {
             {data.is_demo ? (
               <span className="badge-warning">Demo Sandbox Mode</span>
             ) : (
-              <span className="badge-green">Live STS Discovery</span>
+              <span className="badge-green">Live Cloud Discovery</span>
             )}
           </div>
         </div>
@@ -180,7 +205,7 @@ export const Inventory: React.FC = () => {
 
       {/* Search and Filters Bar */}
       <div className="panel p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="relative w-full sm:w-80">
+        <div className="relative w-full sm:w-72">
           <Search className="h-4 w-4 absolute left-3 top-2.5 text-slate-400" />
           <input
             type="text"
@@ -191,21 +216,33 @@ export const Inventory: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
           <div className="flex items-center gap-1.5 text-xs text-slate-400">
             <Filter className="h-3.5 w-3.5" />
-            <span>Type:</span>
+            <span>Filters:</span>
           </div>
+
+          <select
+            value={providerFilter}
+            onChange={(e) => setProviderFilter(e.target.value)}
+            className="input-select text-xs w-32"
+          >
+            <option value="all">All Clouds</option>
+            <option value="aws">AWS</option>
+            <option value="azure">Azure</option>
+            <option value="gcp">GCP</option>
+          </select>
+
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="input-select text-xs w-28"
+            className="input-select text-xs w-36"
           >
             <option value="all">All Types</option>
-            <option value="ec2">EC2</option>
-            <option value="rds">RDS</option>
-            <option value="s3">S3</option>
-            <option value="vpc">VPC</option>
+            <option value="compute">Compute (EC2/VM/GCE)</option>
+            <option value="network">Network (VPC/VNet)</option>
+            <option value="storage">Storage (S3/Blob/GCS)</option>
+            <option value="database">Database (RDS/SQL)</option>
           </select>
 
           <select
@@ -226,18 +263,23 @@ export const Inventory: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-surface-dark border-b border-surface-border text-slate-400 uppercase tracking-wider font-semibold">
               <tr>
+                <th className="py-3 px-4">Cloud</th>
                 <th className="py-3 px-4">Type</th>
-                <th className="py-3 px-4">Resource Name / Identifier</th>
+                <th className="py-3 px-4">Resource Name</th>
                 <th className="py-3 px-4">Resource ID</th>
+                <th className="py-3 px-4">Region</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Management</th>
-                <th className="py-3 px-4">Tags & Metadata</th>
+                <th className="py-3 px-4">Tags &amp; Metadata</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-border text-slate-300">
               {filtered.length > 0 ? (
                 filtered.map((item) => (
                   <tr key={item.id} className="hover:bg-surface-muted/40 transition-colors">
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      {renderProviderBadge(item.provider)}
+                    </td>
                     <td className="py-3 px-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         {getIconForType(item.resource_type)}
@@ -249,6 +291,9 @@ export const Inventory: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 font-mono text-slate-400 whitespace-nowrap">
                       {item.id}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-slate-400 whitespace-nowrap">
+                      {item.region}
                     </td>
                     <td className="py-3 px-4 whitespace-nowrap">
                       <span
@@ -294,7 +339,7 @@ export const Inventory: React.FC = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500">
+                  <td colSpan={8} className="py-8 text-center text-slate-500">
                     No resources matched the active filter criteria.
                   </td>
                 </tr>

@@ -7,9 +7,24 @@ export type NavPage =
   | 'inventory'
   | 'monitoring';
 
+export type CloudProvider = 'aws' | 'azure' | 'gcp';
+
+export interface CloudProviderConnection {
+  provider: CloudProvider;
+  connected: boolean;
+  is_demo: boolean;
+  region: string;
+  identifier?: string;
+  label?: string;
+  verified_at?: string;
+  message: string;
+}
+
 export interface AWSConnectionStatus {
   connected: boolean;
   is_demo: boolean;
+  auth_method?: string;
+  access_key_id_masked?: string;
   account_id?: string;
   role_arn?: string;
   region: string;
@@ -20,6 +35,8 @@ export interface AWSConnectionStatus {
   provisioning_access: boolean;
   missing_permissions: string[];
   message: string;
+  azure?: CloudProviderConnection;
+  gcp?: CloudProviderConnection;
 }
 
 export interface LeastPrivilegePolicyGuide {
@@ -209,11 +226,12 @@ export interface CostEstimationResponse {
 export interface ResourceItem {
   id: string;
   name: string;
+  provider?: CloudProvider;
   resource_type: string;
   region: string;
   status: string;
   created_at?: string;
-  managed_by: 'cloudforge' | 'aws_native' | 'untracked';
+  managed_by: 'cloudforge' | 'aws_native' | 'azure_native' | 'gcp_native' | 'untracked';
   tags: Record<string, string>;
   metadata: Record<string, string>;
 }
@@ -255,6 +273,7 @@ export interface MonitoringOverviewResponse {
 
 export interface PlanResponse {
   plan_id: string;
+  provider?: CloudProvider;
   workspace_name: string;
   is_valid: boolean;
   validation_output: string;

@@ -5,6 +5,9 @@ from fastapi import HTTPException, status
 AWS_ACCOUNT_ID_PATTERN = re.compile(r"^\d{12}$")
 AWS_ROLE_ARN_PATTERN = re.compile(r"^arn:aws:iam::\d{12}:role/[\w+=,.@-]+$")
 AWS_REGION_PATTERN = re.compile(r"^[a-z]{2}-[a-z]+-\d{1}$")
+AZURE_REGION_PATTERN = re.compile(r"^[a-z0-9]{3,30}$")
+GCP_REGION_PATTERN = re.compile(r"^[a-z]+-[a-z]+\d+$")
+AWS_ACCESS_KEY_PATTERN = re.compile(r"^[A-Z0-9]{16,128}$")
 RESOURCE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9-_]{2,64}$")
 CIDR_PATTERN = re.compile(r"^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$")
 
@@ -41,6 +44,38 @@ def validate_aws_region(region: str) -> str:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid AWS region '{region}'. Format: e.g. us-east-1, eu-west-1"
+        )
+    return cleaned
+
+def validate_cloud_region(provider: str, region: str) -> str:
+    cleaned = region.strip().lower()
+    if provider == "aws":
+        return validate_aws_region(cleaned)
+    if provider == "azure":
+        if not AZURE_REGION_PATTERN.match(cleaned):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid Azure region '{region}'. Format: e.g. eastus, westeurope, centralindia"
+            )
+        return cleaned
+    if provider == "gcp":
+        if not GCP_REGION_PATTERN.match(cleaned):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid GCP region '{region}'. Format: e.g. us-central1, europe-west1, asia-south1"
+            )
+        return cleaned
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Unsupported cloud provider '{provider}'."
+    )
+
+def validate_access_key_id(access_key_id: str) -> str:
+    cleaned = access_key_id.strip()
+    if not AWS_ACCESS_KEY_PATTERN.match(cleaned):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid AWS Access Key ID format. Must be 16-128 uppercase alphanumeric characters (e.g. AKIA...)."
         )
     return cleaned
 

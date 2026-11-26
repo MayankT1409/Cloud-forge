@@ -24,8 +24,32 @@ def test_hcl_rendering_and_sanitization():
     assert 'resource "aws_vpc" "main"' in hcl
     assert 'cidr_block           = "10.10.0.0/16"' in hcl
     assert 'resource "aws_instance" "app"' in hcl
+    assert 'resource "aws_iam_role"' not in hcl
+    assert 'iam_instance_profile' not in hcl
     assert 'resource "aws_s3_bucket" "storage"' in hcl
     assert 'resource "aws_db_instance" "database"' in hcl
+
+
+def test_multicloud_azure_and_gcp_hcl_and_plan():
+    az_draft = ProvisioningDraft(provider="azure", region="eastus", azure_resource_group="rg-test-az")
+    az_hcl = render_terraform_hcl(az_draft)
+    assert 'provider "azurerm"' in az_hcl
+    assert 'resource "azurerm_resource_group" "main"' in az_hcl
+    assert 'resource "azurerm_virtual_network" "main"' in az_hcl
+    assert 'resource "azurerm_linux_virtual_machine" "main"' in az_hcl
+    az_plan = generate_plan(az_draft)
+    assert az_plan.provider == "azure"
+    assert az_plan.resources_to_add > 0
+
+    gcp_draft = ProvisioningDraft(provider="gcp", region="us-central1", gcp_project_id="my-gcp-proj")
+    gcp_hcl = render_terraform_hcl(gcp_draft)
+    assert 'provider "google"' in gcp_hcl
+    assert 'resource "google_compute_network" "vpc"' in gcp_hcl
+    assert 'resource "google_compute_instance" "vm"' in gcp_hcl
+    assert 'resource "google_storage_bucket" "bucket"' in gcp_hcl
+    gcp_plan = generate_plan(gcp_draft)
+    assert gcp_plan.provider == "gcp"
+    assert gcp_plan.resources_to_add > 0
 
 def test_plan_generation():
     draft = ProvisioningDraft()
